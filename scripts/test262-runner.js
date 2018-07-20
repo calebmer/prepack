@@ -1268,6 +1268,19 @@ const TransformScalarsToAbstractValuesVisitor = (() => {
       ) {
         return;
       }
+      // TODO: Prepack currently does not support abstract object properties. However, `Object.defineProperty` ends up
+      // getting called a lot in test262. So, for now, let's not abstract strings passed to `Object.defineProperty` to
+      // regain the test coverage we lose when Prepack panics on `Object.defineProperty`.
+      if (
+        p.parent.type === "CallExpression" &&
+        p.parent.callee.type === "MemberExpression" &&
+        p.parent.callee.object.type === "Identifier" &&
+        p.parent.callee.object.name === "Object" &&
+        p.parent.callee.property.type === "Identifier" &&
+        p.parent.callee.property.name === "defineProperty"
+      ) {
+        return;
+      }
       p.node = p.container[p.key] = createAbstractCall(
         t.stringLiteral("string"),
         t.stringLiteral(JSON.stringify(p.node.value)),
