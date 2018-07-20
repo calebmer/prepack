@@ -1177,8 +1177,9 @@ var print = () => {}; // noop for now
       timeout: timeout * 1000,
       errorHandler: diag => {
         if (diag.severity === "Information") return "Recover";
-        if (diag.severity !== "Warning") return "Fail";
-        return "Recover";
+        if (diag.severity === "Warning") return "Recover";
+        if (diag.errorCode === "PP0039") return "Recover";
+        return "Fail";
       },
       onParse: ast => {
         // Transform all statements which come from our test source file. Do not transform statements from our

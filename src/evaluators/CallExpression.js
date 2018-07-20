@@ -217,7 +217,8 @@ function generateRuntimeCall(
   ast: BabelNodeCallExpression,
   strictCode: boolean,
   env: LexicalEnvironment,
-  realm: Realm
+  realm: Realm,
+  havocReachableFromArguments?: boolean
 ) {
   let args = [func];
   let [thisArg, propName] = ref instanceof Reference ? [ref.base, ref.referencedName] : [];
@@ -231,7 +232,7 @@ function generateRuntimeCall(
       // as is any other object that is known to be reachable from this object.
       // NB: Note that this is still optimistic, particularly if the environment exposes the same object
       // to Prepack via alternative means, thus creating aliasing that is not tracked by Prepack.
-      Havoc.value(realm, arg, ast.loc);
+      Havoc.value(realm, arg, ast.loc, havocReachableFromArguments);
     }
   }
   let resultType = (func instanceof AbstractObjectValue ? func.functionResultType : undefined) || Value;
@@ -402,6 +403,23 @@ function EvaluateCall(
   if (realm.isInPureScope() && !realm.instantRender.enabled) {
     return tryToEvaluateCallOrLeaveAsAbstract(ref, func, ast, strictCode, env, realm, thisValue, tailCall);
   } else {
-    return EvaluateDirectCall(realm, strictCode, env, ref, func, thisValue, ast.arguments, tailCall);
+    try {
+      return EvaluateDirectCall(realm, strictCode, env, ref, func, thisValue, ast.arguments, tailCall);
+    } catch (error) {
+      if (func instanceof NativeFunctionValue && error instanceof FatalError) {
+        const diagnostic = new CompilerDiagnostic(
+          "FatalError thrown when evaluating native function. Recovering from this error will leave the call in " +
+            "the output, havoc the arguments and everything reachable from those arguments, but will not havoc the " +
+            "global environment even though the native function may have mutated it.",
+          ast.loc,
+          "PP0039",
+          "RecoverableError"
+        );
+        if (realm.handleError(diagnostic) === "Fail") throw error;
+        return generateRuntimeCall(ref, func, ast, strictCode, env, realm, true);
+      } else {
+        throw error;
+      }
+    }
   }
 }

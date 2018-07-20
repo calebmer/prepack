@@ -113,13 +113,13 @@ function getHavocedFunctionInfo(value: FunctionValue) {
 
 class ObjectValueHavocingVisitor {
   realm: Realm;
-  // ObjectValues to visit if they're reachable.
-  objectsTrackedForHavoc: Set<ObjectValue>;
+  // ObjectValues to visit if they're reachable. If null, then everything is fair game for havocing.
+  objectsTrackedForHavoc: Set<ObjectValue> | null;
   // Values that has been visited.
   visitedValues: Set<Value>;
   _heapInspector: HeapInspector;
 
-  constructor(realm: Realm, objectsTrackedForHavoc: Set<ObjectValue>) {
+  constructor(realm: Realm, objectsTrackedForHavoc: Set<ObjectValue> | null) {
     this.realm = realm;
     this.objectsTrackedForHavoc = objectsTrackedForHavoc;
     this.visitedValues = new Set();
@@ -136,7 +136,7 @@ class ObjectValueHavocingVisitor {
       // For Objects we only need to visit it if it is tracked
       // as a newly created object that might still be mutated.
       // Abstract values gets their arguments visited.
-      if (!this.objectsTrackedForHavoc.has(val)) return false;
+      if (this.objectsTrackedForHavoc !== null && !this.objectsTrackedForHavoc.has(val)) return false;
     }
     if (this.visitedValues.has(val)) return false;
     this.visitedValues.add(val);
@@ -387,7 +387,7 @@ class ObjectValueHavocingVisitor {
         // we can bail out because its bindings should not be mutated in a
         // pure function.
         let fn = record.$FunctionObject;
-        if (!this.objectsTrackedForHavoc.has(fn)) {
+        if (this.objectsTrackedForHavoc !== null && !this.objectsTrackedForHavoc.has(fn)) {
           break;
         }
       }
@@ -536,7 +536,7 @@ function ensureFrozenValue(realm, value, loc): void {
 // Ensure that a value is immutable. If it is not, set all its properties to abstract values
 // and all reachable bindings to abstract values.
 export class HavocImplementation {
-  value(realm: Realm, value: Value, loc: ?BabelNodeSourceLocation): void {
+  value(realm: Realm, value: Value, loc: ?BabelNodeSourceLocation, havocEverything?: boolean): void {
     if (realm.instantRender.enabled) {
       // TODO: For InstantRender...
       // - For declarative bindings, we do want proper materialization/leaking/havocing
@@ -548,7 +548,13 @@ export class HavocImplementation {
       return;
     }
     let objectsTrackedForHavoc = realm.createdObjectsTrackedForLeaks;
-    if (objectsTrackedForHavoc === undefined) {
+    if (havocEverything) {
+      // If we were told to havoc everything then havoc all things reachable by
+      // this value. This is as if our entire program was wrapped in a
+      // pure function.
+      let visitor = new ObjectValueHavocingVisitor(realm, null);
+      visitor.visitValue(value);
+    } else if (objectsTrackedForHavoc === undefined) {
       // We're not tracking a pure function. That means that we would track
       // everything as havoced. We'll assume that any object argument
       // is invalid unless it's frozen.
